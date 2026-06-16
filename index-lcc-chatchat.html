@@ -423,6 +423,7 @@ button{font-family:inherit}
     <div id="callActivePanel" style="display:none">
       <div class="call-icon active">🎤</div>
       <div class="call-title">In Call</div>
+      <div class="call-status" id="callRoomLabel">Room: group</div>
       <div class="call-timer" id="callTimer">00:00</div>
       <div class="voice-bars" id="voiceBars">
         <div class="voice-bar"></div><div class="voice-bar"></div><div class="voice-bar"></div>
@@ -1257,10 +1258,17 @@ function showIdleCall(){
   document.getElementById("callActivePanel").style.display="none";
   document.getElementById("callIncoming").style.display="none";
 }
+function roomLabel(room){
+  if(!room||room==="group")return "Group call";
+  if(room.startsWith("code:"))return "Code: "+room.slice(5);
+  return "Room: "+room;
+}
 function showActiveCall(){
   document.getElementById("callIdle").style.display="none";
   document.getElementById("callActivePanel").style.display="block";
   document.getElementById("callIncoming").style.display="none";
+  const label=document.getElementById("callRoomLabel");
+  if(label)label.textContent=roomLabel(activeCallRoom);
 }
 function showIncomingCall(){
   document.getElementById("callBadge").style.display="block";
@@ -1277,13 +1285,15 @@ function showCallToast(){
   const sub=document.getElementById("callToastSub");
   const room=pendingCall?.signal?.room||pendingCall?.metadata?.room||"group";
   if(title)title.textContent=document.querySelector("#callIncoming .call-title")?.textContent||"Incoming call";
-  if(sub)sub.textContent=room==="group"?"Group call — accept to join":"Code call — accept to join";
+  if(sub)sub.textContent=room==="group"?"Group call — accept to join":roomLabel(room)+" — accept to join";
   toast.style.display="block";
 }
 function showIncomingSignal(data){
   pendingCall={signal:data};
   const title=document.querySelector("#callIncoming .call-title");
   if(title)title.textContent=(data.from||"Someone")+" is calling...";
+  const status=document.querySelector("#callIncoming .call-status");
+  if(status)status.textContent=roomLabel(data.room||"group");
   showIncomingCall();
 }
 function handleIncomingPeerCall(call){
@@ -1297,6 +1307,8 @@ function handleIncomingPeerCall(call){
   pendingCall=call;
   const title=document.querySelector("#callIncoming .call-title");
   if(title)title.textContent=(call.metadata?.name||call.peer||"Someone")+" is calling...";
+  const status=document.querySelector("#callIncoming .call-status");
+  if(status)status.textContent=roomLabel(room);
   showIncomingCall();
 }
 
@@ -1310,7 +1322,7 @@ async function startCall(room="group"){
     document.getElementById("callBtn").classList.add("active");
     showActiveCall();document.getElementById("callToast").style.display="none";startCallTimer();
     await sendCallSignal({type:"ring",room});
-    updateCallStatus(room==="group"?"🟢 Group call started — waiting for people to join...":"🟢 Code call started — waiting for matching code...");
+    updateCallStatus(room==="group"?"🟢 Group call started — waiting for people to join...":"🟢 "+roomLabel(room)+" call started — waiting for matching code...");
   }catch(e){alert("Microphone permission denied or unavailable")}
 }
 function startGroupCall(){return startCall("group")}
