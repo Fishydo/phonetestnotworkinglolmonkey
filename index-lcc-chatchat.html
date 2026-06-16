@@ -97,6 +97,8 @@ button{font-family:inherit}
 .logout-btn:hover{background:rgba(239,68,68,.1);color:#ef4444;border-color:rgba(239,68,68,.2)}
 
 /* ─── Notification PiP button ─── */
+.private-btn{background:rgba(139,92,246,.15);border:1px solid rgba(139,92,246,.3);border-radius:9px;width:32px;height:32px;cursor:pointer;font-size:14px;color:#a78bfa;display:flex;align-items:center;justify-content:center;transition:all .2s}
+.private-btn:hover{background:rgba(139,92,246,.25);transform:scale(1.08)}
 .notif-btn{background:rgba(24,24,27,.8);border:1px solid #27272a;border-radius:9px;width:32px;height:32px;cursor:pointer;font-size:15px;color:#52525b;display:flex;align-items:center;justify-content:center;transition:all .2s}
 .notif-btn:hover{background:rgba(139,92,246,.1);color:#a78bfa;border-color:rgba(139,92,246,.2)}
 .notif-btn.active{background:rgba(139,92,246,.15);color:#a78bfa;border-color:rgba(139,92,246,.3);animation:notifGlow 2s ease-in-out infinite}
@@ -247,6 +249,10 @@ button{font-family:inherit}
 .call-buttons{display:flex;gap:12px;justify-content:center}
 .call-action{width:56px;height:56px;border-radius:50%;border:none;cursor:pointer;font-size:22px;transition:all .2s;display:flex;align-items:center;justify-content:center}
 .call-action.start{background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff;box-shadow:0 8px 30px rgba(34,197,94,.4)}
+.call-action.code{background:linear-gradient(135deg,#8b5cf6,#6d28d9);color:#fff;box-shadow:0 8px 30px rgba(139,92,246,.35)}
+.call-code-row{display:flex;gap:10px;margin:18px 0 4px}
+.call-code-input{min-width:0;flex:1;padding:13px 14px;border-radius:14px;border:1px solid #3f3f46;background:rgba(9,9,11,.95);color:#f4f4f5;font-weight:700;outline:none;text-align:center;letter-spacing:1px}
+.call-code-input:focus{border-color:#8b5cf6;box-shadow:0 0 0 5px rgba(139,92,246,.12)}
 .call-action.start:hover{transform:scale(1.1);box-shadow:0 12px 40px rgba(34,197,94,.5)}
 .call-action.end{background:linear-gradient(135deg,#ef4444,#dc2626);color:#fff;box-shadow:0 8px 30px rgba(239,68,68,.4)}
 .call-action.end:hover{transform:scale(1.1);box-shadow:0 12px 40px rgba(239,68,68,.5)}
@@ -258,6 +264,8 @@ button{font-family:inherit}
 .call-action.decline{background:linear-gradient(135deg,#ef4444,#dc2626);color:#fff;box-shadow:0 8px 30px rgba(239,68,68,.4)}
 .call-action.decline:hover{transform:scale(1.1)}
 .incoming-label{display:inline-block;background:rgba(139,92,246,.15);color:#a78bfa;font-size:11px;font-weight:700;padding:4px 10px;border-radius:20px;margin-bottom:16px;letter-spacing:.5px;text-transform:uppercase}
+.call-toast{position:fixed;top:74px;left:16px;z-index:260;width:290px;background:rgba(24,24,27,.98);border:1px solid rgba(139,92,246,.45);border-radius:18px;padding:14px;box-shadow:0 18px 55px rgba(0,0,0,.55);animation:pipSlideIn .25s ease}
+.call-toast-title{font-size:14px;font-weight:800;color:#f4f4f5;margin-bottom:3px}.call-toast-sub{font-size:12px;color:#a1a1aa;margin-bottom:12px}.call-toast-actions{display:flex;gap:8px}.call-toast-actions button{flex:1;border:none;border-radius:11px;padding:10px;font-weight:800;cursor:pointer}.call-toast-accept{background:#22c55e;color:#fff}.call-toast-decline{background:#27272a;color:#a1a1aa}
 
 /* ─── Avatar change toast ─── */
 .avatar-toast{position:fixed;bottom:100px;left:50%;transform:translateX(-50%) translateY(10px);background:rgba(24,24,27,.97);border:1px solid rgba(63,63,70,.7);border-radius:12px;padding:9px 16px;font-size:13px;color:#a1a1aa;font-weight:500;opacity:0;transition:all .3s;pointer-events:none;white-space:nowrap;z-index:400;backdrop-filter:blur(16px)}
@@ -310,6 +318,7 @@ button{font-family:inherit}
     <div class="hdr-right">
       
       <!-- Voice call + Notification / PiP toggles -->
+      <button class="private-btn" id="privateBtn" onclick="startPrivateMessage()" title="Private message">🔒</button>
       <button class="call-btn" id="callBtn" onclick="openCallPanel()" title="Voice call">📞<span class="call-badge" id="callBadge" style="display:none"></span></button>
       <button class="notif-btn" id="notifBtn" onclick="togglePiP()" title="Live notifications (Picture-in-Picture)">🔔</button>
       <div class="hdr-user" onclick="changeAvatar()" title="Change profile emoji">
@@ -342,6 +351,13 @@ button{font-family:inherit}
           <div class="img-preview-name" id="imgPreviewName"></div>
         </div>
         <button class="img-preview-clear" onclick="clearImagePreview()" title="Remove">✕</button>
+      </div>
+      <div class="img-preview-bar" id="privateBar" style="display:none">
+        <div class="img-preview-info">
+          <div class="img-preview-label">🔒 Private message</div>
+          <div class="img-preview-name" id="privateTargetLabel"></div>
+        </div>
+        <button class="img-preview-clear" onclick="clearPrivateTarget()" title="Cancel private message">✕</button>
       </div>
       <div class="input-row" id="inputRow">
         
@@ -394,10 +410,15 @@ button{font-family:inherit}
     <div id="callIdle">
       <div class="call-icon connecting">🎙️</div>
       <div class="call-title">Voice Call</div>
-      <div class="call-status" id="callConnStatus">Connecting to server...</div>
+      <div class="call-status" id="callConnStatus">Connecting call...</div>
       <div class="call-buttons">
-        <button class="call-action start" id="startCallBtn" onclick="startCall()" disabled title="Start Call">📞</button>
+        <button class="call-action start" id="startGroupCallBtn" onclick="startGroupCall()" disabled title="Start Group Call">👥</button>
       </div>
+      <div class="call-code-row">
+        <input class="call-code-input" id="callCodeInput" placeholder="call code" maxlength="24" autocomplete="off">
+        <button class="call-action code" id="startCodeCallBtn" onclick="startCodeCall()" disabled title="Start Code Call">#</button>
+      </div>
+      <div class="call-status">Group call is one tap. Code call only rings people using the same code.</div>
     </div>
     <div id="callActivePanel" style="display:none">
       <div class="call-icon active">🎤</div>
@@ -415,8 +436,8 @@ button{font-family:inherit}
     <div id="callIncoming" style="display:none">
       <div class="incoming-label">Incoming Call</div>
       <div class="call-icon ringing">📞</div>
-      <div class="call-title">Someone is calling...</div>
-      <div class="call-status">Accept to join the voice chat</div>
+      <div class="call-title">Group call is starting...</div>
+      <div class="call-status">Accept to join the group voice chat</div>
       <div class="call-buttons" style="margin-top:24px">
         <button class="call-action decline" onclick="declineCall()" title="Decline">✕</button>
         <button class="call-action accept" onclick="acceptCall()" title="Accept">📞</button>
@@ -424,11 +445,19 @@ button{font-family:inherit}
     </div>
   </div>
 </div>
+<div class="call-toast" id="callToast" style="display:none">
+  <div class="call-toast-title" id="callToastTitle">Incoming call</div>
+  <div class="call-toast-sub" id="callToastSub">Accept to join voice chat</div>
+  <div class="call-toast-actions">
+    <button class="call-toast-decline" onclick="declineCall()">Decline</button>
+    <button class="call-toast-accept" onclick="acceptCall()">Accept</button>
+  </div>
+</div>
 <audio id="remoteAudio" autoplay playsinline style="display:none"></audio>
 
 <script>
 const API="https://chat.catboxfat.workers.dev";
-let user="", admin=false, msgs=[], reactToId=null, pollTimer=null;
+let user="", admin=false, msgs=[], reactToId=null, pollTimer=null, privateTarget="";
 let userAvatar=null;       // currently active emoji avatar (or null)
 let pendingAvatar=null;    // emoji chosen in onboarding before joining
 let emojiAvatarMode=false; // true when emoji picker is open for avatar selection
@@ -717,7 +746,7 @@ let isFirstLoad=true;
 
 async function loadMsgs(){
   try{
-    const r=await fetch(API);
+    const r=await fetch(API+"?user="+encodeURIComponent(user)+"&admin="+admin);
     msgs=await r.json();
     handleCallSignals(msgs);
     msgs=msgs.filter(m=>!isCallSignal(m));
@@ -758,7 +787,7 @@ function buildMsgHTML(m,isFirst,isContinued,showAddBtn){
   if(isContinued){
     return`${actionsHTML}<div style="flex:1;min-width:0">${m.deleted?`<span class="msg-deleted-badge" style="margin-top:2px">🗑 deleted</span><div class="msg-text-deleted">${esc(m.text||"")}</div>`:`${m.text?`<div class="msg-text">${esc(m.text)}</div>`:""}${imgHTML}`}${reactsHTML}</div>`;
   }
-  return`${actionsHTML}<div class="avatar-lg" style="${avatarStyle}">${avatarContent}</div><div style="flex:1;min-width:0"><div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap"><span class="msg-user" style="color:${m.deleted?'#52525b':c}">${esc(m.user)}</span><span class="msg-time">${time}</span>${m.deleted?'<span class="msg-deleted-badge">🗑 deleted</span>':""}</div>${m.deleted?`<div class="msg-text-deleted">${esc(m.text||"")}</div>`:`${m.text?`<div class="msg-text">${esc(m.text)}</div>`:""}${imgHTML}`}${reactsHTML}</div>`;
+  return`${actionsHTML}<div class="avatar-lg" style="${avatarStyle}">${avatarContent}</div><div style="flex:1;min-width:0"><div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap"><span class="msg-user" style="color:${m.deleted?'#52525b':c}">${esc(m.user)}</span><span class="msg-time">${time}</span>${m.privateTo?`<span class="msg-deleted-badge" style="color:#a78bfa;background:rgba(139,92,246,.12)">🔒 to ${esc(m.privateTo)}</span>`:""}${m.deleted?'<span class="msg-deleted-badge">🗑 deleted</span>':""}</div>${m.deleted?`<div class="msg-text-deleted">${esc(m.text||"")}</div>`:`${m.text?`<div class="msg-text">${esc(m.text)}</div>`:""}${imgHTML}`}${reactsHTML}</div>`;
 }
 
 function renderMsgs(){
@@ -809,6 +838,24 @@ function renderMsgs(){
   isFirstLoad=false;
 }
 
+function startPrivateMessage(){
+  const target=prompt("Private message username (admins can see private messages):", privateTarget||"");
+  if(target===null)return;
+  const clean=target.trim();
+  if(!clean){clearPrivateTarget();return;}
+  privateTarget=clean;
+  document.getElementById("privateTargetLabel").textContent="Only "+clean+" and admins can see the next message";
+  document.getElementById("privateBar").style.display="flex";
+  document.getElementById("msginput").placeholder="Private message to "+clean+"…";
+  document.getElementById("msginput").focus();
+}
+function clearPrivateTarget(){
+  privateTarget="";
+  document.getElementById("privateBar").style.display="none";
+  document.getElementById("privateTargetLabel").textContent="";
+  document.getElementById("msginput").placeholder="Type a message…";
+}
+
 async function doSend(){
   const inp=document.getElementById("msginput");
   const t=inp.value.trim();
@@ -826,12 +873,14 @@ async function doSend(){
     text:t,
     avatar:userAvatar||null,
     imageData:selectedImageB64||null,
-    imageType:selectedImageType||null
+    imageType:selectedImageType||null,
+    privateTo:privateTarget||null
   };
 
   inp.value="";
   document.getElementById("sendBtn").classList.remove("active");
   clearImagePreview();
+  if(privateTarget)clearPrivateTarget();
 
   await fetch(API+"?action=send",{method:"POST",body:JSON.stringify(payload)});
   loadMsgs();
@@ -1123,8 +1172,8 @@ function updatePiP(){
 // ─── Voice Call ───
 const CALL_SIGNAL_PREFIX="__lcc_call_signal__";
 let peer=null,peerReady=false,myPeerId="";
-let currentCall=null,pendingCall=null,localStream=null;
-let callActive=false,callTimerInterval=null,callSeconds=0,isMuted=false;
+let currentCalls={},pendingCall=null,localStream=null;
+let callActive=false,callTimerInterval=null,callSeconds=0,isMuted=false,activeCallRoom="";
 let seenCallSignals=new Set();
 
 function friendlyPeerId(name){
@@ -1153,14 +1202,16 @@ function initPeerCall(){
   ]}});
   peer.on("open",id=>{
     myPeerId=id;peerReady=true;
-    updateCallStatus("🟢 Ready — Call ID: "+id);
-    document.getElementById("startCallBtn").disabled=false;
+    updateCallStatus("🟢 Ready for calls");
+    document.getElementById("startGroupCallBtn").disabled=false;
+    document.getElementById("startCodeCallBtn").disabled=false;
   });
   peer.on("call",handleIncomingPeerCall);
   peer.on("error",err=>{
     console.error("PeerJS error",err);
     updateCallStatus("⚠️ Call connection error: "+(err.message||err.type||"unknown"));
-    document.getElementById("startCallBtn").disabled=true;
+    document.getElementById("startGroupCallBtn").disabled=true;
+    document.getElementById("startCodeCallBtn").disabled=true;
   });
 }
 
@@ -1176,14 +1227,20 @@ async function sendCallSignal(payload){
 }
 function isCallSignal(m){return typeof m.text==="string"&&m.text.startsWith(CALL_SIGNAL_PREFIX)}
 function parseCallSignal(m){try{return JSON.parse(m.text.slice(CALL_SIGNAL_PREFIX.length))}catch(e){return null}}
+function currentWantedRooms(){
+  const code=(document.getElementById("callCodeInput")?.value||"").trim().toLowerCase();
+  return new Set(["group", code?"code:"+code:null].filter(Boolean));
+}
 function handleCallSignals(allMsgs){
+  const wanted=currentWantedRooms();
   allMsgs.filter(isCallSignal).forEach(m=>{
     if(seenCallSignals.has(m.id))return;
     seenCallSignals.add(m.id);
     const data=parseCallSignal(m);
     if(!data||data.from===user)return;
-    if(data.type==="ring"&&!callActive&&!pendingCall)showIncomingSignal(data);
-    if(data.type==="end"&&callActive)endCall(false);
+    data.room=data.room||"group";
+    if(data.type==="ring"&&!callActive&&!pendingCall&&wanted.has(data.room)&&Date.now()-(data.time||0)<30000)showIncomingSignal(data);
+    if(data.type==="end"&&((callActive&&data.room===activeCallRoom)||(pendingCall&&pendingCall.signal&&pendingCall.signal.room===data.room)))endCall(false);
   });
 }
 
@@ -1211,7 +1268,17 @@ function showIncomingCall(){
   document.getElementById("callIdle").style.display="none";
   document.getElementById("callActivePanel").style.display="none";
   document.getElementById("callIncoming").style.display="block";
-  document.getElementById("callOverlay").style.display="flex";
+  showCallToast();
+}
+function showCallToast(){
+  const toast=document.getElementById("callToast");
+  if(!toast)return;
+  const title=document.getElementById("callToastTitle");
+  const sub=document.getElementById("callToastSub");
+  const room=pendingCall?.signal?.room||pendingCall?.metadata?.room||"group";
+  if(title)title.textContent=document.querySelector("#callIncoming .call-title")?.textContent||"Incoming call";
+  if(sub)sub.textContent=room==="group"?"Group call — accept to join":"Code call — accept to join";
+  toast.style.display="block";
 }
 function showIncomingSignal(data){
   pendingCall={signal:data};
@@ -1220,31 +1287,37 @@ function showIncomingSignal(data){
   showIncomingCall();
 }
 function handleIncomingPeerCall(call){
-  if(callActive&&localStream&&!currentCall){
+  const room=call.metadata?.room||"group";
+  if(callActive&&localStream&&room===activeCallRoom){
     call.answer(localStream);
-    currentCall=call;
     attachCallHandlers(call);
     return;
   }
-  if(currentCall||callActive){call.close();return;}
+  if(callActive){call.close();return;}
   pendingCall=call;
   const title=document.querySelector("#callIncoming .call-title");
   if(title)title.textContent=(call.metadata?.name||call.peer||"Someone")+" is calling...";
   showIncomingCall();
 }
 
-async function startCall(){
+async function startCall(room="group"){
   initPeerCall();
   if(callActive||!peerReady)return;
   try{
     localStream=await navigator.mediaDevices.getUserMedia({audio:true,video:false});
-    callActive=true;pendingCall=null;
+    callActive=true;pendingCall=null;activeCallRoom=room;
     document.getElementById("callBadge").style.display="block";
     document.getElementById("callBtn").classList.add("active");
-    showActiveCall();startCallTimer();
-    await sendCallSignal({type:"ring"});
-    updateCallStatus("🟢 Calling everyone in chat...");
+    showActiveCall();document.getElementById("callToast").style.display="none";startCallTimer();
+    await sendCallSignal({type:"ring",room});
+    updateCallStatus(room==="group"?"🟢 Group call started — waiting for people to join...":"🟢 Code call started — waiting for matching code...");
   }catch(e){alert("Microphone permission denied or unavailable")}
+}
+function startGroupCall(){return startCall("group")}
+function startCodeCall(){
+  const code=(document.getElementById("callCodeInput").value||"").trim().toLowerCase();
+  if(!code){alert("Type a call code first");return;}
+  return startCall("code:"+code);
 }
 async function acceptCall(){
   initPeerCall();
@@ -1253,36 +1326,50 @@ async function acceptCall(){
     localStream=await navigator.mediaDevices.getUserMedia({audio:true,video:false});
   }catch(e){alert("Microphone permission denied or unavailable");declineCall();return;}
   if(pendingCall.signal){
-    currentCall=peer.call(pendingCall.signal.peerId,localStream,{metadata:{name:user}});
-    attachCallHandlers(currentCall);
+    activeCallRoom=pendingCall.signal.room||"group";
+    const outgoing=peer.call(pendingCall.signal.peerId,localStream,{metadata:{name:user,room:activeCallRoom}});
+    attachCallHandlers(outgoing);
   }else{
     pendingCall.answer(localStream);
-    currentCall=pendingCall;
-    attachCallHandlers(currentCall);
+    activeCallRoom=pendingCall.metadata?.room||"group";
+    attachCallHandlers(pendingCall);
   }
   pendingCall=null;callActive=true;
   document.getElementById("callBadge").style.display="block";
   document.getElementById("callBtn").classList.add("active");
-  showActiveCall();startCallTimer();
+  showActiveCall();document.getElementById("callToast").style.display="none";startCallTimer();
 }
 function attachCallHandlers(call){
-  call.on("stream",stream=>{document.getElementById("remoteAudio").srcObject=stream});
-  call.on("close",()=>endCall(false));
-  call.on("error",()=>endCall(false));
+  currentCalls[call.peer]=call;
+  call.on("stream",stream=>addRemoteAudio(call.peer,stream));
+  call.on("close",()=>removeRemoteCall(call.peer));
+  call.on("error",()=>removeRemoteCall(call.peer));
+}
+function addRemoteAudio(id,stream){
+  let audio=document.getElementById("remoteAudio-"+id);
+  if(!audio){audio=document.createElement("audio");audio.id="remoteAudio-"+id;audio.autoplay=true;audio.playsInline=true;audio.style.display="none";document.body.appendChild(audio);}
+  audio.srcObject=stream;
+}
+function removeRemoteCall(id){
+  if(currentCalls[id])delete currentCalls[id];
+  const audio=document.getElementById("remoteAudio-"+id);
+  if(audio)audio.remove();
 }
 async function endCall(announce=true){
-  if(announce&&callActive)sendCallSignal({type:"end"}).catch(()=>{});
-  callActive=false;pendingCall=null;
-  if(currentCall){currentCall.close();currentCall=null;}
+  if(announce&&(callActive||pendingCall))sendCallSignal({type:"end",room:activeCallRoom||(pendingCall?.signal?.room)||"group"}).catch(()=>{});
+  callActive=false;pendingCall=null;activeCallRoom="";
+  Object.values(currentCalls).forEach(c=>c.close());currentCalls={};
+  document.querySelectorAll("audio[id^=\"remoteAudio-\"]").forEach(a=>a.remove());
   if(localStream){localStream.getTracks().forEach(t=>t.stop());localStream=null;}
   document.getElementById("remoteAudio").srcObject=null;
+  document.getElementById("callToast").style.display="none";
   document.getElementById("callBadge").style.display="none";
   document.getElementById("callBtn").classList.remove("active");
   stopCallTimer();isMuted=false;
   const mb=document.getElementById("muteBtn");mb.classList.remove("muted");mb.innerHTML="🎤";
   showIdleCall();
 }
-function declineCall(){pendingCall=null;document.getElementById("callBadge").style.display="none";document.getElementById("callBtn").classList.remove("active");showIdleCall()}
+function declineCall(){pendingCall=null;document.getElementById("callBadge").style.display="none";document.getElementById("callBtn").classList.remove("active");document.getElementById("callToast").style.display="none";showIdleCall()}
 function toggleMute(){
   isMuted=!isMuted;
   if(localStream)localStream.getAudioTracks().forEach(t=>t.enabled=!isMuted);
@@ -1292,6 +1379,8 @@ function toggleMute(){
 function startCallTimer(){callSeconds=0;updateTimerDisplay();clearInterval(callTimerInterval);callTimerInterval=setInterval(()=>{callSeconds++;updateTimerDisplay()},1000)}
 function stopCallTimer(){clearInterval(callTimerInterval);callSeconds=0;document.getElementById("callTimer").textContent="00:00"}
 function updateTimerDisplay(){const m=Math.floor(callSeconds/60).toString().padStart(2,"0");const s=(callSeconds%60).toString().padStart(2,"0");document.getElementById("callTimer").textContent=m+":"+s}
+
+window.addEventListener("beforeunload",()=>{if(callActive||pendingCall)navigator.sendBeacon(API+"?action=send",JSON.stringify({user,text:CALL_SIGNAL_PREFIX+JSON.stringify({type:"end",room:activeCallRoom||(pendingCall?.signal?.room)||"group",from:user,peerId:myPeerId,time:Date.now()}),avatar:userAvatar||null,imageData:null,imageType:null}))});
 
 // ─── Init ───
 window.addEventListener("DOMContentLoaded",()=>{
