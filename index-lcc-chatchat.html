@@ -4,6 +4,7 @@
 <title>lcc-chat</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{height:100%;overflow:hidden}
@@ -308,7 +309,8 @@ button{font-family:inherit}
     </div>
     <div class="hdr-right">
       
-      <!-- Notification / PiP toggle -->
+      <!-- Voice call + Notification / PiP toggles -->
+      <button class="call-btn" id="callBtn" onclick="openCallPanel()" title="Voice call">📞<span class="call-badge" id="callBadge" style="display:none"></span></button>
       <button class="notif-btn" id="notifBtn" onclick="togglePiP()" title="Live notifications (Picture-in-Picture)">🔔</button>
       <div class="hdr-user" onclick="changeAvatar()" title="Change profile emoji">
         <div class="avatar" id="hdrAvatar"></div>
@@ -422,6 +424,7 @@ button{font-family:inherit}
     </div>
   </div>
 </div>
+<audio id="remoteAudio" autoplay playsinline style="display:none"></audio>
 
 <script>
 const API="https://chat.catboxfat.workers.dev";
@@ -594,6 +597,7 @@ function enterChat(){
   userAvatar=localStorage.getItem("lcc-avatar")||null;
   updateHeaderAvatar();
   updateAdmin();
+  initPeerCall();
   loadMsgs();
   if(pollTimer)clearInterval(pollTimer);
   pollTimer=setInterval(loadMsgs,3000);
@@ -715,6 +719,8 @@ async function loadMsgs(){
   try{
     const r=await fetch(API);
     msgs=await r.json();
+    handleCallSignals(msgs);
+    msgs=msgs.filter(m=>!isCallSignal(m));
     renderMsgs();
     if(pipEnabled)updatePiP();
   }catch(e){}
@@ -1115,69 +1121,91 @@ function updatePiP(){
 }
 
 // ─── Voice Call ───
-const VOICE_WS="wss://chat-lcc.onrender.com";
-let voiceSocket=null,callActive=false,localStream=null;
-let audioContext=null,processor=null,source=null;
-let voiceHeartbeat=null,callTimerInterval=null,callSeconds=0;
-let isMuted=false,hasIncomingCall=false;
+const CALL_SIGNAL_PREFIX="__lcc_call_signal__";
+let peer=null,peerReady=false,myPeerId="";
+let currentCall=null,pendingCall=null,localStream=null;
+let callActive=false,callTimerInterval=null,callSeconds=0,isMuted=false;
+let seenCallSignals=new Set();
 
-function connectVoice(){
-  if(voiceSocket&&voiceSocket.readyState===WebSocket.OPEN)return;
-  try{
-    voiceSocket=new WebSocket(VOICE_WS);
-    voiceSocket.onopen=()=>{
-      document.getElementById("callConnStatus").textContent="🟢 Connected — Ready to call";
-      document.getElementById("startCallBtn").disabled=false;
-      voiceHeartbeat=setInterval(()=>{
-        if(voiceSocket&&voiceSocket.readyState===WebSocket.OPEN)
-          voiceSocket.send(JSON.stringify({type:"heartbeat"}));
-      },30000);
-    };
-    voiceSocket.onmessage=(event)=>{
-      try{
-        const data=JSON.parse(event.data);
-        if(data.type==="call-start"&&!callActive)showIncomingCall();
-        if(data.type==="audio"&&callActive)playAudioChunk(data.chunk);
-      }catch(e){}
-    };
-    voiceSocket.onclose=()=>{
-      document.getElementById("callConnStatus").textContent="🔴 Disconnected — Reconnecting...";
-      document.getElementById("startCallBtn").disabled=true;
-      clearInterval(voiceHeartbeat);
-      setTimeout(connectVoice,3000);
-    };
-    voiceSocket.onerror=()=>{if(voiceSocket)voiceSocket.close()};
-  }catch(e){
-    document.getElementById("callConnStatus").textContent="⚠️ Connection failed";
+function friendlyPeerId(name){
+  const clean=(name||"lcc").toLowerCase().replace(/[^a-z0-9]/g,"").slice(0,10)||"lcc";
+  const saved=localStorage.getItem("lcc-peer-suffix")||Math.random().toString(36).slice(2,6);
+  localStorage.setItem("lcc-peer-suffix",saved);
+  return clean+"-"+saved;
+}
+
+function updateCallStatus(text){
+  const el=document.getElementById("callConnStatus");
+  if(el)el.textContent=text;
+}
+
+function initPeerCall(){
+  if(peer||!user)return;
+  if(typeof Peer==="undefined"){
+    updateCallStatus("⚠️ PeerJS failed to load");
+    return;
   }
+  myPeerId=friendlyPeerId(user);
+  peer=new Peer(myPeerId,{debug:0,config:{iceServers:[
+    {urls:"stun:stun.l.google.com:19302"},
+    {urls:"stun:stun1.l.google.com:19302"},
+    {urls:"stun:global.stun.twilio.com:3478"}
+  ]}});
+  peer.on("open",id=>{
+    myPeerId=id;peerReady=true;
+    updateCallStatus("🟢 Ready — Call ID: "+id);
+    document.getElementById("startCallBtn").disabled=false;
+  });
+  peer.on("call",handleIncomingPeerCall);
+  peer.on("error",err=>{
+    console.error("PeerJS error",err);
+    updateCallStatus("⚠️ Call connection error: "+(err.message||err.type||"unknown"));
+    document.getElementById("startCallBtn").disabled=true;
+  });
+}
+
+async function sendCallSignal(payload){
+  if(!user)return;
+  await fetch(API+"?action=send",{method:"POST",body:JSON.stringify({
+    user,
+    text:CALL_SIGNAL_PREFIX+JSON.stringify({...payload,from:user,fromAvatar:userAvatar||null,peerId:myPeerId,time:Date.now()}),
+    avatar:userAvatar||null,
+    imageData:null,
+    imageType:null
+  })});
+}
+function isCallSignal(m){return typeof m.text==="string"&&m.text.startsWith(CALL_SIGNAL_PREFIX)}
+function parseCallSignal(m){try{return JSON.parse(m.text.slice(CALL_SIGNAL_PREFIX.length))}catch(e){return null}}
+function handleCallSignals(allMsgs){
+  allMsgs.filter(isCallSignal).forEach(m=>{
+    if(seenCallSignals.has(m.id))return;
+    seenCallSignals.add(m.id);
+    const data=parseCallSignal(m);
+    if(!data||data.from===user)return;
+    if(data.type==="ring"&&!callActive&&!pendingCall)showIncomingSignal(data);
+    if(data.type==="end"&&callActive)endCall(false);
+  });
 }
 
 function openCallPanel(){
   document.getElementById("callOverlay").style.display="flex";
-  connectVoice();
-  if(hasIncomingCall)showIncomingCall();
+  initPeerCall();
+  if(pendingCall)showIncomingCall();
   else if(callActive)showActiveCall();
   else showIdleCall();
 }
-
-function closeCallPanel(){
-  if(!callActive)document.getElementById("callOverlay").style.display="none";
-}
-
+function closeCallPanel(){if(!callActive&&!pendingCall)document.getElementById("callOverlay").style.display="none"}
 function showIdleCall(){
   document.getElementById("callIdle").style.display="block";
   document.getElementById("callActivePanel").style.display="none";
   document.getElementById("callIncoming").style.display="none";
 }
-
 function showActiveCall(){
   document.getElementById("callIdle").style.display="none";
   document.getElementById("callActivePanel").style.display="block";
   document.getElementById("callIncoming").style.display="none";
 }
-
 function showIncomingCall(){
-  hasIncomingCall=true;
   document.getElementById("callBadge").style.display="block";
   document.getElementById("callBtn").classList.add("active");
   document.getElementById("callIdle").style.display="none";
@@ -1185,84 +1213,85 @@ function showIncomingCall(){
   document.getElementById("callIncoming").style.display="block";
   document.getElementById("callOverlay").style.display="flex";
 }
+function showIncomingSignal(data){
+  pendingCall={signal:data};
+  const title=document.querySelector("#callIncoming .call-title");
+  if(title)title.textContent=(data.from||"Someone")+" is calling...";
+  showIncomingCall();
+}
+function handleIncomingPeerCall(call){
+  if(callActive&&localStream&&!currentCall){
+    call.answer(localStream);
+    currentCall=call;
+    attachCallHandlers(call);
+    return;
+  }
+  if(currentCall||callActive){call.close();return;}
+  pendingCall=call;
+  const title=document.querySelector("#callIncoming .call-title");
+  if(title)title.textContent=(call.metadata?.name||call.peer||"Someone")+" is calling...";
+  showIncomingCall();
+}
 
-function startCall(){
-  if(callActive)return;
-  navigator.mediaDevices.getUserMedia({audio:true}).then(stream=>{
-    callActive=true;localStream=stream;hasIncomingCall=false;
+async function startCall(){
+  initPeerCall();
+  if(callActive||!peerReady)return;
+  try{
+    localStream=await navigator.mediaDevices.getUserMedia({audio:true,video:false});
+    callActive=true;pendingCall=null;
     document.getElementById("callBadge").style.display="block";
     document.getElementById("callBtn").classList.add("active");
     showActiveCall();startCallTimer();
-    if(voiceSocket&&voiceSocket.readyState===WebSocket.OPEN)
-      voiceSocket.send(JSON.stringify({type:"call-start"}));
-    audioContext=new(window.AudioContext||window.webkitAudioContext)();
-    source=audioContext.createMediaStreamSource(stream);
-    processor=audioContext.createScriptProcessor(1024,1,1);
-    source.connect(processor);processor.connect(audioContext.destination);
-    processor.onaudioprocess=(e)=>{
-      if(isMuted)return;
-      const data=e.inputBuffer.getChannelData(0);
-      if(voiceSocket&&voiceSocket.readyState===WebSocket.OPEN)
-        voiceSocket.send(JSON.stringify({type:"audio",chunk:Array.from(data)}));
-    };
-  }).catch(()=>alert("Microphone permission denied"));
+    await sendCallSignal({type:"ring"});
+    updateCallStatus("🟢 Calling everyone in chat...");
+  }catch(e){alert("Microphone permission denied or unavailable")}
 }
-
-function endCall(){
-  callActive=false;hasIncomingCall=false;
-  document.getElementById("callBadge").style.display="none";
-  document.getElementById("callBtn").classList.remove("active");
-  stopCallTimer();
-  if(processor)processor.disconnect();
-  if(source)source.disconnect();
+async function acceptCall(){
+  initPeerCall();
+  if(!pendingCall||callActive)return;
+  try{
+    localStream=await navigator.mediaDevices.getUserMedia({audio:true,video:false});
+  }catch(e){alert("Microphone permission denied or unavailable");declineCall();return;}
+  if(pendingCall.signal){
+    currentCall=peer.call(pendingCall.signal.peerId,localStream,{metadata:{name:user}});
+    attachCallHandlers(currentCall);
+  }else{
+    pendingCall.answer(localStream);
+    currentCall=pendingCall;
+    attachCallHandlers(currentCall);
+  }
+  pendingCall=null;callActive=true;
+  document.getElementById("callBadge").style.display="block";
+  document.getElementById("callBtn").classList.add("active");
+  showActiveCall();startCallTimer();
+}
+function attachCallHandlers(call){
+  call.on("stream",stream=>{document.getElementById("remoteAudio").srcObject=stream});
+  call.on("close",()=>endCall(false));
+  call.on("error",()=>endCall(false));
+}
+async function endCall(announce=true){
+  if(announce&&callActive)sendCallSignal({type:"end"}).catch(()=>{});
+  callActive=false;pendingCall=null;
+  if(currentCall){currentCall.close();currentCall=null;}
   if(localStream){localStream.getTracks().forEach(t=>t.stop());localStream=null;}
-  isMuted=false;
-  document.getElementById("muteBtn").classList.remove("muted");
-  document.getElementById("muteBtn").innerHTML="🎤";
-  showIdleCall();
-}
-
-function acceptCall(){hasIncomingCall=false;startCall()}
-function declineCall(){
-  hasIncomingCall=false;
+  document.getElementById("remoteAudio").srcObject=null;
   document.getElementById("callBadge").style.display="none";
   document.getElementById("callBtn").classList.remove("active");
+  stopCallTimer();isMuted=false;
+  const mb=document.getElementById("muteBtn");mb.classList.remove("muted");mb.innerHTML="🎤";
   showIdleCall();
 }
-
+function declineCall(){pendingCall=null;document.getElementById("callBadge").style.display="none";document.getElementById("callBtn").classList.remove("active");showIdleCall()}
 function toggleMute(){
   isMuted=!isMuted;
+  if(localStream)localStream.getAudioTracks().forEach(t=>t.enabled=!isMuted);
   const btn=document.getElementById("muteBtn");
-  if(isMuted){btn.classList.add("muted");btn.innerHTML="🔇"}
-  else{btn.classList.remove("muted");btn.innerHTML="🎤"}
+  if(isMuted){btn.classList.add("muted");btn.innerHTML="🔇"}else{btn.classList.remove("muted");btn.innerHTML="🎤"}
 }
-
-function startCallTimer(){
-  callSeconds=0;updateTimerDisplay();
-  callTimerInterval=setInterval(()=>{callSeconds++;updateTimerDisplay()},1000);
-}
-
-function stopCallTimer(){
-  clearInterval(callTimerInterval);callSeconds=0;
-  document.getElementById("callTimer").textContent="00:00";
-}
-
-function updateTimerDisplay(){
-  const m=Math.floor(callSeconds/60).toString().padStart(2,"0");
-  const s=(callSeconds%60).toString().padStart(2,"0");
-  document.getElementById("callTimer").textContent=m+":"+s;
-}
-
-function playAudioChunk(chunk){
-  if(!audioContext)audioContext=new(window.AudioContext||window.webkitAudioContext)();
-  try{
-    const fa=new Float32Array(chunk);
-    const buf=audioContext.createBuffer(1,fa.length,audioContext.sampleRate||44100);
-    buf.copyToChannel(fa,0);
-    const src=audioContext.createBufferSource();
-    src.buffer=buf;src.connect(audioContext.destination);src.start();
-  }catch(e){}
-}
+function startCallTimer(){callSeconds=0;updateTimerDisplay();clearInterval(callTimerInterval);callTimerInterval=setInterval(()=>{callSeconds++;updateTimerDisplay()},1000)}
+function stopCallTimer(){clearInterval(callTimerInterval);callSeconds=0;document.getElementById("callTimer").textContent="00:00"}
+function updateTimerDisplay(){const m=Math.floor(callSeconds/60).toString().padStart(2,"0");const s=(callSeconds%60).toString().padStart(2,"0");document.getElementById("callTimer").textContent=m+":"+s}
 
 // ─── Init ───
 window.addEventListener("DOMContentLoaded",()=>{
